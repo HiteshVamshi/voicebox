@@ -6,7 +6,17 @@ export interface ProfileFormDraft {
   description: string;
   language: string;
   referenceText: string;
+  voiceSource: 'clone' | 'builtin' | 'designed';
   sampleMode: 'upload' | 'record' | 'system';
+  designedTraits?: {
+    honesty: number;
+    humor: number;
+    warmth: number;
+    energy: number;
+    emotionalExpressiveness: number;
+    confidence: number;
+    formality: number;
+  };
   // Note: File objects can't be persisted, so we store metadata
   sampleFileName?: string;
   sampleFileType?: string;

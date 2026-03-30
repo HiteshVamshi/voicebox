@@ -105,7 +105,16 @@ function App() {
   // Setup window close handler and auto-start server when running in Tauri (production only)
   useEffect(() => {
     if (!platform.metadata.isTauri) {
-      setServerReady(true); // Web assumes server is running
+      platform.lifecycle
+        .startServer(false, null)
+        .then((serverUrl) => {
+          useServerStore.getState().setServerUrl(serverUrl);
+          setServerReady(true);
+        })
+        .catch((error) => {
+          const msg = error instanceof Error ? error.message : String(error);
+          setStartupError(msg);
+        });
       return;
     }
 

@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useQuery } from '@tanstack/react-query';
-import { Edit2, Mic, Monitor, Music, Upload, X } from 'lucide-react';
+import { Edit2, Mic, Monitor, Music, Sparkles, Upload, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import * as z from 'zod';
@@ -31,6 +31,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Slider } from '@/components/ui/slider';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
@@ -51,6 +52,13 @@ import {
 import { useSystemAudioCapture } from '@/lib/hooks/useSystemAudioCapture';
 import { useTranscription } from '@/lib/hooks/useTranscription';
 import { convertToWav, formatAudioDuration, getAudioDuration } from '@/lib/utils/audio';
+import {
+  buildDesignedVoicePrompt,
+  DESIGNED_VOICE_PRESETS,
+  DEFAULT_DESIGNED_VOICE_TRAITS,
+  parseDesignedVoiceTraits,
+  type DesignedVoiceTraits,
+} from '@/lib/voiceDesign';
 import { usePlatform } from '@/platform/PlatformContext';
 import { useServerStore } from '@/stores/serverStore';
 import { type ProfileFormDraft, useUIStore } from '@/stores/uiStore';
@@ -70,6 +78,7 @@ const DEFAULT_ENGINE_OPTIONS = [
   { value: 'tada', label: 'TADA' },
   { value: 'kokoro', label: 'Kokoro 82M' },
 ] as const;
+const DESIGNED_ONLY_ENGINES = new Set(['qwen', 'qwen_custom_voice']);
 
 const baseProfileSchema = z.object({
   name: z.string().min(1, 'Name is required').max(100),
@@ -135,7 +144,7 @@ export function ProfileForm() {
   const deleteAvatar = useDeleteAvatar();
   const transcribe = useTranscription();
   const { toast } = useToast();
-  const [voiceSource, setVoiceSource] = useState<'clone' | 'builtin'>('clone');
+  const [voiceSource, setVoiceSource] = useState<'clone' | 'builtin' | 'designed'>('clone');
   const [sampleMode, setSampleMode] = useState<'upload' | 'record' | 'system'>('record');
   const [audioDuration, setAudioDuration] = useState<number | null>(null);
   const [isValidatingAudio, setIsValidatingAudio] = useState(false);
@@ -149,6 +158,9 @@ export function ProfileForm() {
   const [profileEffectsChain, setProfileEffectsChain] = useState<EffectConfig[]>([]);
   const [effectsDirty, setEffectsDirty] = useState(false);
   const [defaultEngine, setDefaultEngine] = useState<string>('');
+  const [designedTraits, setDesignedTraits] = useState<DesignedVoiceTraits>(
+    DEFAULT_DESIGNED_VOICE_TRAITS,
+  );
 
   const form = useForm<ProfileFormValues>({
     resolver: zodResolver(profileSchema),
@@ -164,6 +176,13 @@ export function ProfileForm() {
 
   const selectedFile = form.watch('sampleFile');
   const selectedAvatarFile = form.watch('avatarFile');
+  const watchedName = form.watch('name');
+  const watchedDescription = form.watch('description');
+  const designedPromptPreview = buildDesignedVoicePrompt(
+    watchedName || 'Designed Voice',
+    watchedDescription,
+    designedTraits,
+  );
 
   // Validate audio duration when file is selected
   useEffect(() => {
@@ -271,11 +290,18 @@ export function ProfileForm() {
         (!isCreating && editingProfile?.voice_type === 'preset')),
   });
   const presetVoices = presetVoicesData?.voices ?? [];
-  const isSampleBasedProfile = isCreating
-    ? voiceSource === 'clone'
-    : editingProfile?.voice_type !== 'preset';
+  const currentVoiceType: VoiceType | null = isCreating
+    ? (voiceSource === 'builtin'
+        ? 'preset'
+        : voiceSource === 'designed'
+          ? 'designed'
+          : 'cloned')
+    : (editingProfile?.voice_type ?? null);
+  const isSampleBasedProfile = currentVoiceType === 'cloned';
   const availableDefaultEngines = DEFAULT_ENGINE_OPTIONS.filter(
-    (option) => !isSampleBasedProfile || !PRESET_ONLY_ENGINES.has(option.value),
+    (option) =>
+      (!isSampleBasedProfile || !PRESET_ONLY_ENGINES.has(option.value)) &&
+      (currentVoiceType !== 'designed' || DESIGNED_ONLY_ENGINES.has(option.value)),
   );
 
   // Show recording errors
@@ -316,6 +342,7 @@ export function ProfileForm() {
   // Restore form state from draft or editing profile
   useEffect(() => {
     if (editingProfile) {
+      const editingVoiceType = editingProfile.voice_type ?? 'cloned';
       form.reset({
         name: editingProfile.name,
         description: editingProfile.description || '',
@@ -327,6 +354,14 @@ export function ProfileForm() {
       setProfileEffectsChain(editingProfile.effects_chain ?? []);
       setEffectsDirty(false);
       setDefaultEngine(editingProfile.default_engine ?? '');
+      setVoiceSource(
+        editingVoiceType === 'preset'
+          ? 'builtin'
+          : editingVoiceType === 'designed'
+            ? 'designed'
+            : 'clone',
+      );
+      setDesignedTraits(parseDesignedVoiceTraits(editingProfile.design_prompt));
     } else if (profileFormDraft && open) {
       // Restore from draft when opening in create mode
       form.reset({
@@ -337,7 +372,9 @@ export function ProfileForm() {
         sampleFile: undefined,
         avatarFile: undefined,
       });
+      setVoiceSource(profileFormDraft.voiceSource ?? 'clone');
       setSampleMode(profileFormDraft.sampleMode);
+      setDesignedTraits(profileFormDraft.designedTraits ?? DEFAULT_DESIGNED_VOICE_TRAITS);
       // Restore the file if we have it saved
       if (
         profileFormDraft.sampleFileData &&
@@ -361,8 +398,10 @@ export function ProfileForm() {
         referenceText: undefined,
         avatarFile: undefined,
       });
+      setVoiceSource('clone');
       setSampleMode('record');
       setAvatarPreview(null);
+      setDesignedTraits(DEFAULT_DESIGNED_VOICE_TRAITS);
     }
   }, [editingProfile, profileFormDraft, open, form]);
 
@@ -424,6 +463,26 @@ export function ProfileForm() {
     playPause(file);
   }
 
+  function handleResetDesignedTraits() {
+    setDesignedTraits(DEFAULT_DESIGNED_VOICE_TRAITS);
+  }
+
+  async function handleCopyDesignedPrompt() {
+    try {
+      await navigator.clipboard.writeText(designedPromptPreview);
+      toast({
+        title: 'Prompt copied',
+        description: 'The designed voice prompt has been copied to your clipboard.',
+      });
+    } catch (error) {
+      toast({
+        title: 'Copy failed',
+        description: error instanceof Error ? error.message : 'Could not copy prompt.',
+        variant: 'destructive',
+      });
+    }
+  }
+
   function handleAvatarFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (file) {
@@ -473,6 +532,10 @@ export function ProfileForm() {
   async function onSubmit(data: ProfileFormValues) {
     try {
       if (editingProfileId) {
+        const designPrompt =
+          editingProfile?.voice_type === 'designed'
+            ? buildDesignedVoicePrompt(data.name, data.description, designedTraits)
+            : undefined;
         // Editing: update profile
         await updateProfile.mutateAsync({
           profileId: editingProfileId,
@@ -480,6 +543,7 @@ export function ProfileForm() {
             name: data.name,
             description: data.description,
             language: data.language,
+            design_prompt: designPrompt,
             default_engine: defaultEngine || undefined,
           },
         });
@@ -564,6 +628,36 @@ export function ProfileForm() {
         toast({
           title: 'Profile created',
           description: `"${data.name}" has been created with a built-in voice.`,
+        });
+      } else if (voiceSource === 'designed') {
+        const profile = await createProfile.mutateAsync({
+          name: data.name,
+          description: data.description,
+          language: data.language,
+          voice_type: 'designed' as VoiceType,
+          design_prompt: buildDesignedVoicePrompt(data.name, data.description, designedTraits),
+          default_engine: defaultEngine || undefined,
+        });
+
+        if (data.avatarFile) {
+          try {
+            await uploadAvatar.mutateAsync({
+              profileId: profile.id,
+              file: data.avatarFile,
+            });
+          } catch (avatarError) {
+            toast({
+              title: 'Avatar upload failed',
+              description:
+                avatarError instanceof Error ? avatarError.message : 'Failed to upload avatar',
+              variant: 'destructive',
+            });
+          }
+        }
+
+        toast({
+          title: 'Designed voice created',
+          description: `"${data.name}" has been created with personality settings.`,
         });
       } else {
         // Creating cloned profile: require sample file and reference text
@@ -730,7 +824,9 @@ export function ProfileForm() {
           description: values.description || '',
           language: values.language || 'en',
           referenceText: values.referenceText || '',
+          voiceSource,
           sampleMode,
+          designedTraits,
         };
 
         // Save file as base64 if present
@@ -773,7 +869,7 @@ export function ProfileForm() {
             <DialogDescription>
               {editingProfileId
                 ? 'Update your voice profile details and manage samples.'
-                : 'Create a new voice profile from an audio sample or a built-in voice.'}
+                : 'Create a new voice profile from audio, a built-in voice, or a designed personality.'}
             </DialogDescription>
             {isCreating && profileFormDraft && (
               <div className="flex items-center gap-2 pt-2">
@@ -792,7 +888,9 @@ export function ProfileForm() {
                       sampleFile: undefined,
                       referenceText: '',
                     });
+                    setVoiceSource('clone');
                     setSampleMode('record');
+                    setDesignedTraits(DEFAULT_DESIGNED_VOICE_TRAITS);
                   }}
                 >
                   <X className="h-3 w-3 mr-1" />
@@ -823,6 +921,18 @@ export function ProfileForm() {
                           >
                             <Mic className="h-3.5 w-3.5" />
                             Clone from audio
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setVoiceSource('designed')}
+                            className={`inline-flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-colors ${
+                              voiceSource === 'designed'
+                                ? 'bg-accent text-accent-foreground shadow-sm'
+                                : 'text-muted-foreground hover:text-foreground'
+                            }`}
+                          >
+                            <Sparkles className="h-3.5 w-3.5" />
+                            Designed voice
                           </button>
                           <button
                             type="button"
@@ -898,6 +1008,124 @@ export function ProfileForm() {
                               ))}
                             </div>
                           </FormItem>
+                        </div>
+                      ) : voiceSource === 'designed' ? (
+                        <div className="space-y-5">
+                          <FormDescription>
+                            Shape a voice personality with traits like honesty, humor, warmth, and
+                            energy. Voicebox will translate these into a designed voice prompt.
+                          </FormDescription>
+
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="text-sm font-medium">Quick presets</div>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 px-2 text-xs"
+                                onClick={handleResetDesignedTraits}
+                              >
+                                Reset sliders
+                              </Button>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {DESIGNED_VOICE_PRESETS.map((preset) => (
+                                <button
+                                  key={preset.id}
+                                  type="button"
+                                  onClick={() => setDesignedTraits(preset.traits)}
+                                  className="rounded-full border border-border px-3 py-1.5 text-sm text-left transition-colors hover:bg-muted"
+                                  title={preset.description}
+                                >
+                                  {preset.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="rounded-lg border border-border p-4 space-y-4">
+                            <DesignedVoiceSlider
+                              label="Honesty"
+                              value={designedTraits.honesty}
+                              hint="How direct, transparent, and plain-spoken the voice feels."
+                              onChange={(value) =>
+                                setDesignedTraits((prev) => ({ ...prev, honesty: value }))
+                              }
+                            />
+                            <DesignedVoiceSlider
+                              label="Humor"
+                              value={designedTraits.humor}
+                              hint="How playful, witty, or funny the delivery becomes."
+                              onChange={(value) =>
+                                setDesignedTraits((prev) => ({ ...prev, humor: value }))
+                              }
+                            />
+                            <DesignedVoiceSlider
+                              label="Warmth"
+                              value={designedTraits.warmth}
+                              hint="How friendly, caring, and emotionally welcoming the voice sounds."
+                              onChange={(value) =>
+                                setDesignedTraits((prev) => ({ ...prev, warmth: value }))
+                              }
+                            />
+                            <DesignedVoiceSlider
+                              label="Energy"
+                              value={designedTraits.energy}
+                              hint="How lively, dynamic, and animated the pacing feels."
+                              onChange={(value) =>
+                                setDesignedTraits((prev) => ({ ...prev, energy: value }))
+                              }
+                            />
+                            <DesignedVoiceSlider
+                              label="Emotional Expressiveness"
+                              value={designedTraits.emotionalExpressiveness}
+                              hint="How much feeling, color, and dramatic texture comes through."
+                              onChange={(value) =>
+                                setDesignedTraits((prev) => ({
+                                  ...prev,
+                                  emotionalExpressiveness: value,
+                                }))
+                              }
+                            />
+                            <DesignedVoiceSlider
+                              label="Confidence"
+                              value={designedTraits.confidence}
+                              hint="How assured, steady, and self-possessed the delivery sounds."
+                              onChange={(value) =>
+                                setDesignedTraits((prev) => ({ ...prev, confidence: value }))
+                              }
+                            />
+                            <DesignedVoiceSlider
+                              label="Formality"
+                              value={designedTraits.formality}
+                              hint="How polished and formal versus casual and conversational it feels."
+                              onChange={(value) =>
+                                setDesignedTraits((prev) => ({ ...prev, formality: value }))
+                              }
+                            />
+                          </div>
+
+                          <div className="rounded-lg border border-dashed border-border p-4 space-y-2 bg-muted/20">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="text-sm font-medium">Generated prompt preview</div>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2 text-xs"
+                                onClick={handleCopyDesignedPrompt}
+                              >
+                                Copy prompt
+                              </Button>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              This is the design prompt that will be saved with the profile.
+                            </p>
+                            <div className="text-sm leading-6 whitespace-pre-wrap break-words">
+                              {designedPromptPreview}
+                            </div>
+                          </div>
                         </div>
                       ) : (
                         <>
@@ -1063,6 +1291,123 @@ export function ProfileForm() {
                           This profile uses a built-in voice. The voice cannot be changed after
                           creation.
                         </p>
+                      </div>
+                    ) : editingProfile.voice_type === 'designed' ? (
+                      <div className="space-y-5 pt-4">
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="text-sm font-medium">Quick presets</div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2 text-xs"
+                              onClick={handleResetDesignedTraits}
+                            >
+                              Reset sliders
+                            </Button>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {DESIGNED_VOICE_PRESETS.map((preset) => (
+                              <button
+                                key={preset.id}
+                                type="button"
+                                onClick={() => setDesignedTraits(preset.traits)}
+                                className="rounded-full border border-border px-3 py-1.5 text-sm text-left transition-colors hover:bg-muted"
+                                title={preset.description}
+                              >
+                                {preset.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="rounded-lg border border-border p-4 space-y-3">
+                          <div className="text-sm font-medium text-muted-foreground">
+                            Designed Voice Personality
+                          </div>
+                          <DesignedVoiceSlider
+                            label="Honesty"
+                            value={designedTraits.honesty}
+                            hint="How direct, transparent, and plain-spoken the voice feels."
+                            onChange={(value) =>
+                              setDesignedTraits((prev) => ({ ...prev, honesty: value }))
+                            }
+                          />
+                          <DesignedVoiceSlider
+                            label="Humor"
+                            value={designedTraits.humor}
+                            hint="How playful, witty, or funny the delivery becomes."
+                            onChange={(value) =>
+                              setDesignedTraits((prev) => ({ ...prev, humor: value }))
+                            }
+                          />
+                          <DesignedVoiceSlider
+                            label="Warmth"
+                            value={designedTraits.warmth}
+                            hint="How friendly, caring, and emotionally welcoming the voice sounds."
+                            onChange={(value) =>
+                              setDesignedTraits((prev) => ({ ...prev, warmth: value }))
+                            }
+                          />
+                          <DesignedVoiceSlider
+                            label="Energy"
+                            value={designedTraits.energy}
+                            hint="How lively, dynamic, and animated the pacing feels."
+                            onChange={(value) =>
+                              setDesignedTraits((prev) => ({ ...prev, energy: value }))
+                            }
+                          />
+                          <DesignedVoiceSlider
+                            label="Emotional Expressiveness"
+                            value={designedTraits.emotionalExpressiveness}
+                            hint="How much feeling, color, and dramatic texture comes through."
+                            onChange={(value) =>
+                              setDesignedTraits((prev) => ({
+                                ...prev,
+                                emotionalExpressiveness: value,
+                              }))
+                            }
+                          />
+                          <DesignedVoiceSlider
+                            label="Confidence"
+                            value={designedTraits.confidence}
+                            hint="How assured, steady, and self-possessed the delivery sounds."
+                            onChange={(value) =>
+                              setDesignedTraits((prev) => ({ ...prev, confidence: value }))
+                            }
+                          />
+                          <DesignedVoiceSlider
+                            label="Formality"
+                            value={designedTraits.formality}
+                            hint="How polished and formal versus casual and conversational it feels."
+                            onChange={(value) =>
+                              setDesignedTraits((prev) => ({ ...prev, formality: value }))
+                            }
+                          />
+                        </div>
+
+                        <div className="rounded-lg border border-dashed border-border p-4 space-y-2 bg-muted/20">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="text-sm font-medium">Generated prompt preview</div>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 px-2 text-xs"
+                              onClick={handleCopyDesignedPrompt}
+                            >
+                              Copy prompt
+                            </Button>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            This prompt updates as you tune the sliders and is saved when you
+                            click save.
+                          </p>
+                          <div className="text-sm leading-6 whitespace-pre-wrap break-words">
+                            {designedPromptPreview}
+                          </div>
+                        </div>
                       </div>
                     ) : (
                       <div>
@@ -1250,5 +1595,40 @@ export function ProfileForm() {
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function DesignedVoiceSlider({
+  label,
+  value,
+  hint,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  hint: string;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <div className="text-sm font-medium">{label}</div>
+          <div className="text-xs text-muted-foreground">{hint}</div>
+        </div>
+        <Badge variant="outline" className="shrink-0 min-w-11 justify-center">
+          {value}
+        </Badge>
+      </div>
+      <Slider
+        value={[value]}
+        min={0}
+        max={100}
+        step={1}
+        onValueChange={([next]) => {
+          if (typeof next === 'number') onChange(next);
+        }}
+      />
+    </div>
   );
 }

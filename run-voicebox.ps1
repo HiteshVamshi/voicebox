@@ -37,7 +37,7 @@ Write-Host "Starting web app in a new window..."
 Start-Process powershell.exe -WorkingDirectory (Join-Path $repoRoot "web") -ArgumentList @(
     "-NoExit",
     "-Command",
-    "& '$bunExe' run dev"
+    "& '$bunExe' run dev --host 127.0.0.1 --port 5173 --strictPort"
 ) | Out-Null
 
 Start-Sleep -Seconds 3
