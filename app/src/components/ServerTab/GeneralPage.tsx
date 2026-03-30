@@ -1,12 +1,22 @@
 import { zodResolver } from '@hookform/resolvers/zod';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, ArrowUpRight, Book, Download, Loader2, RefreshCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import * as z from 'zod';
+import { apiClient } from '@/lib/api/client';
+import { LANGUAGE_OPTIONS, type LanguageCode } from '@/lib/constants/languages';
 import { Button } from '@/components/ui/button';
 import { Form, FormControl, FormField, FormItem, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Toggle } from '@/components/ui/toggle';
 import { useToast } from '@/components/ui/use-toast';
 import { useAutoUpdater } from '@/hooks/useAutoUpdater';
@@ -19,10 +29,18 @@ const connectionSchema = z.object({
   serverUrl: z.string().url('Please enter a valid URL'),
 });
 
+const pronunciationSchema = z.object({
+  phrase: z.string().min(1, 'Phrase is required').max(120),
+  pronunciation: z.string().min(1, 'Pronunciation is required').max(240),
+  language: z.string().optional(),
+});
+
 type ConnectionFormValues = z.infer<typeof connectionSchema>;
+type PronunciationFormValues = z.infer<typeof pronunciationSchema>;
 
 export function GeneralPage() {
   const platform = usePlatform();
+  const queryClient = useQueryClient();
   const serverUrl = useServerStore((state) => state.serverUrl);
   const setServerUrl = useServerStore((state) => state.setServerUrl);
   const keepServerRunningOnClose = useServerStore((state) => state.keepServerRunningOnClose);
@@ -31,10 +49,56 @@ export function GeneralPage() {
   const setMode = useServerStore((state) => state.setMode);
   const { toast } = useToast();
   const { data: health, isLoading, error: healthError } = useServerHealth();
+  const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
 
   const form = useForm<ConnectionFormValues>({
     resolver: zodResolver(connectionSchema),
     defaultValues: { serverUrl },
+  });
+
+  const pronunciationForm = useForm<PronunciationFormValues>({
+    resolver: zodResolver(pronunciationSchema),
+    defaultValues: {
+      phrase: '',
+      pronunciation: '',
+      language: 'en',
+    },
+  });
+
+  const { data: pronunciationEntries } = useQuery({
+    queryKey: ['pronunciationEntries'],
+    queryFn: () => apiClient.listPronunciationEntries(),
+  });
+
+  const createEntry = useMutation({
+    mutationFn: (data: PronunciationFormValues) =>
+      apiClient.createPronunciationEntry({
+        phrase: data.phrase,
+        pronunciation: data.pronunciation,
+        language: (data.language || undefined) as LanguageCode | undefined,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pronunciationEntries'] });
+    },
+  });
+
+  const updateEntry = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: PronunciationFormValues }) =>
+      apiClient.updatePronunciationEntry(id, {
+        phrase: data.phrase,
+        pronunciation: data.pronunciation,
+        language: (data.language || undefined) as LanguageCode | undefined,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pronunciationEntries'] });
+    },
+  });
+
+  const deleteEntry = useMutation({
+    mutationFn: (id: string) => apiClient.deletePronunciationEntry(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pronunciationEntries'] });
+    },
   });
 
   useEffect(() => {
@@ -49,6 +113,60 @@ export function GeneralPage() {
     toast({
       title: 'Server URL updated',
       description: `Connected to ${data.serverUrl}`,
+    });
+  }
+
+  async function onSubmitPronunciation(data: PronunciationFormValues) {
+    try {
+      if (editingEntryId) {
+        await updateEntry.mutateAsync({ id: editingEntryId, data });
+        toast({
+          title: 'Pronunciation updated',
+          description: `Updated "${data.phrase}".`,
+        });
+      } else {
+        await createEntry.mutateAsync(data);
+        toast({
+          title: 'Pronunciation added',
+          description: `Added "${data.phrase}" to the dictionary.`,
+        });
+      }
+
+      setEditingEntryId(null);
+      pronunciationForm.reset({
+        phrase: '',
+        pronunciation: '',
+        language: 'en',
+      });
+    } catch (error) {
+      toast({
+        title: 'Save failed',
+        description: error instanceof Error ? error.message : 'Could not save pronunciation entry.',
+        variant: 'destructive',
+      });
+    }
+  }
+
+  function startEditPronunciation(entry: {
+    id: string;
+    phrase: string;
+    pronunciation: string;
+    language?: string;
+  }) {
+    setEditingEntryId(entry.id);
+    pronunciationForm.reset({
+      phrase: entry.phrase,
+      pronunciation: entry.pronunciation,
+      language: entry.language || 'en',
+    });
+  }
+
+  function resetPronunciationForm() {
+    setEditingEntryId(null);
+    pronunciationForm.reset({
+      phrase: '',
+      pronunciation: '',
+      language: 'en',
     });
   }
 
@@ -177,6 +295,140 @@ export function GeneralPage() {
       </SettingSection>
 
       <ApiReferenceCard serverUrl={serverUrl} />
+
+      <SettingSection
+        title="Pronunciation Dictionary"
+        description="Replace phrases before generation so names, brands, and tricky words are spoken more naturally."
+      >
+        <Form {...pronunciationForm}>
+          <form
+            onSubmit={pronunciationForm.handleSubmit(onSubmitPronunciation)}
+            className="space-y-4"
+          >
+            <div className="grid grid-cols-[1.2fr_1.2fr_180px_auto_auto] gap-2 items-start">
+              <FormField
+                control={pronunciationForm.control}
+                name="phrase"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormControl>
+                      <Input placeholder="Original phrase" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={pronunciationForm.control}
+                name="pronunciation"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormControl>
+                      <Input placeholder="How it should be spoken" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={pronunciationForm.control}
+                name="language"
+                render={({ field }) => (
+                  <FormItem>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Language" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {LANGUAGE_OPTIONS.map((lang) => (
+                          <SelectItem key={lang.value} value={lang.value}>
+                            {lang.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <Button
+                type="submit"
+                size="sm"
+                disabled={createEntry.isPending || updateEntry.isPending}
+              >
+                {editingEntryId ? 'Save' : 'Add'}
+              </Button>
+              {editingEntryId && (
+                <Button type="button" variant="outline" size="sm" onClick={resetPronunciationForm}>
+                  Cancel
+                </Button>
+              )}
+            </div>
+          </form>
+        </Form>
+
+        <div className="space-y-2">
+          {pronunciationEntries && pronunciationEntries.length > 0 ? (
+            pronunciationEntries.map((entry) => (
+              <div
+                key={entry.id}
+                className="flex items-center gap-3 rounded-lg border border-border/60 p-3"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium">{entry.phrase}</div>
+                  <div className="text-sm text-muted-foreground">{entry.pronunciation}</div>
+                </div>
+                <div className="text-xs text-muted-foreground w-16 text-right">
+                  {entry.language || 'all'}
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => startEditPronunciation(entry)}
+                >
+                  Edit
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={deleteEntry.isPending}
+                  onClick={async () => {
+                    try {
+                      await deleteEntry.mutateAsync(entry.id);
+                      if (editingEntryId === entry.id) {
+                        resetPronunciationForm();
+                      }
+                      toast({
+                        title: 'Pronunciation removed',
+                        description: `Deleted "${entry.phrase}".`,
+                      });
+                    } catch (error) {
+                      toast({
+                        title: 'Delete failed',
+                        description:
+                          error instanceof Error
+                            ? error.message
+                            : 'Could not delete pronunciation entry.',
+                        variant: 'destructive',
+                      });
+                    }
+                  }}
+                >
+                  Delete
+                </Button>
+              </div>
+            ))
+          ) : (
+            <div className="rounded-lg border border-dashed border-border/60 p-4 text-sm text-muted-foreground">
+              No pronunciation entries yet. Add names or phrases that need custom spoken forms.
+            </div>
+          )}
+        </div>
+      </SettingSection>
 
       {platform.metadata.isTauri && <UpdatesSection />}
     </div>

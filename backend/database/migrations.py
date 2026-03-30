@@ -34,6 +34,7 @@ def run_migrations(engine) -> None:
     _migrate_generations(engine, inspector, tables)
     _migrate_effect_presets(engine, inspector, tables)
     _migrate_generation_versions(engine, inspector, tables)
+    _migrate_pronunciation_entries(engine, inspector, tables)
     _normalize_storage_paths(engine, tables)
 
 
@@ -182,6 +183,28 @@ def _migrate_generation_versions(engine, inspector, tables: set[str]) -> None:
     columns = _get_columns(inspector, "generation_versions")
     if "source_version_id" not in columns:
         _add_column(engine, "generation_versions", "source_version_id VARCHAR", "source_version_id")
+
+
+def _migrate_pronunciation_entries(engine, inspector, tables: set[str]) -> None:
+    if "pronunciation_entries" in tables:
+        columns = _get_columns(inspector, "pronunciation_entries")
+        if "updated_at" not in columns:
+            _add_column(engine, "pronunciation_entries", "updated_at DATETIME", "updated_at")
+        return
+
+    with engine.connect() as conn:
+        conn.execute(text("""
+            CREATE TABLE pronunciation_entries (
+                id VARCHAR PRIMARY KEY,
+                phrase VARCHAR NOT NULL,
+                pronunciation VARCHAR NOT NULL,
+                language VARCHAR,
+                created_at DATETIME,
+                updated_at DATETIME
+            )
+        """))
+        conn.commit()
+    logger.info("Created pronunciation_entries table")
 
 
 def _normalize_storage_paths(engine, tables: set[str]) -> None:

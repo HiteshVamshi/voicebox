@@ -168,3 +168,16 @@ class ProfileChannelMapping(Base):
 
     profile_id = Column(String, ForeignKey("profiles.id"), primary_key=True)
     channel_id = Column(String, ForeignKey("audio_channels.id"), primary_key=True)
+
+
+class PronunciationEntry(Base):
+    """Pronunciation dictionary entry."""
+
+    __tablename__ = "pronunciation_entries"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    phrase = Column(String, nullable=False)
+    pronunciation = Column(String, nullable=False)
+    language = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -35,6 +35,30 @@ class DesignedVoiceTraits(BaseModel):
     formality: int = Field(ge=0, le=100)
 
 
+class PronunciationEntryCreate(BaseModel):
+    """Request model for a pronunciation dictionary entry."""
+
+    phrase: str = Field(..., min_length=1, max_length=120)
+    pronunciation: str = Field(..., min_length=1, max_length=240)
+    language: Optional[str] = Field(
+        default=None, pattern="^(zh|en|ja|ko|de|fr|ru|pt|es|it|he|ar|da|el|fi|hi|ms|nl|no|pl|sv|sw|tr)?$"
+    )
+
+
+class PronunciationEntryResponse(BaseModel):
+    """Response model for a pronunciation dictionary entry."""
+
+    id: str
+    phrase: str
+    pronunciation: str
+    language: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class VoiceProfileResponse(BaseModel):
     """Response model for voice profile."""
 

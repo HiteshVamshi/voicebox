@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 logger = logging.getLogger(__name__)
 
 from .. import models
-from ..services import history, profiles, tts
+from ..services import history, profiles, pronunciation, tts
 from ..database import Generation as DBGeneration, VoiceProfile as DBVoiceProfile, get_db
 from ..services.generation import run_generation
 from ..services.task_queue import enqueue_generation
@@ -40,6 +40,7 @@ async def generate_speech(
     from ..backends import engine_has_model_sizes
 
     engine = _resolve_generation_engine(data, profile)
+    processed_text = pronunciation.apply_pronunciation_dictionary(data.text, data.language, db)
     try:
         profiles.validate_profile_engine(profile, engine)
     except ValueError as e:
@@ -65,7 +66,7 @@ async def generate_speech(
     task_manager.start_generation(
         task_id=generation_id,
         profile_id=data.profile_id,
-        text=data.text,
+        text=processed_text,
     )
 
     effects_chain_config = None
@@ -85,7 +86,7 @@ async def generate_speech(
         run_generation(
             generation_id=generation_id,
             profile_id=data.profile_id,
-            text=data.text,
+            text=processed_text,
             language=data.language,
             engine=engine,
             model_size=model_size,
@@ -240,6 +241,7 @@ async def stream_speech(
         raise HTTPException(status_code=404, detail="Profile not found")
 
     engine = _resolve_generation_engine(data, profile)
+    processed_text = pronunciation.apply_pronunciation_dictionary(data.text, data.language, db)
     try:
         profiles.validate_profile_engine(profile, engine)
     except ValueError as e:
@@ -266,7 +268,7 @@ async def stream_speech(
 
     audio, sample_rate = await generate_chunked(
         tts_model,
-        data.text,
+        processed_text,
         voice_prompt,
         language=data.language,
         seed=data.seed,

@@ -13,6 +13,21 @@ export interface DesignedVoiceTraits {
   formality: number;
 }
 
+export interface PronunciationEntryCreate {
+  phrase: string;
+  pronunciation: string;
+  language?: LanguageCode;
+}
+
+export interface PronunciationEntryResponse {
+  id: string;
+  phrase: string;
+  pronunciation: string;
+  language?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface VoiceProfileCreate {
   name: string;
   description?: string;

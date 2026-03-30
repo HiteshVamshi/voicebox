@@ -19,6 +19,8 @@ import type {
   ModelStatusListResponse,
   PresetVoice,
   ProfileSampleResponse,
+  PronunciationEntryCreate,
+  PronunciationEntryResponse,
   StoryCreate,
   StoryDetailResponse,
   StoryItemBatchUpdate,
@@ -237,6 +239,35 @@ class ApiClient {
   async regenerateGeneration(generationId: string): Promise<GenerationResponse> {
     return this.request<GenerationResponse>(`/generate/${generationId}/regenerate`, {
       method: 'POST',
+    });
+  }
+
+  async listPronunciationEntries(): Promise<PronunciationEntryResponse[]> {
+    return this.request<PronunciationEntryResponse[]>('/pronunciation');
+  }
+
+  async createPronunciationEntry(
+    data: PronunciationEntryCreate,
+  ): Promise<PronunciationEntryResponse> {
+    return this.request<PronunciationEntryResponse>('/pronunciation', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updatePronunciationEntry(
+    entryId: string,
+    data: PronunciationEntryCreate,
+  ): Promise<PronunciationEntryResponse> {
+    return this.request<PronunciationEntryResponse>(`/pronunciation/${entryId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deletePronunciationEntry(entryId: string): Promise<void> {
+    await this.request<void>(`/pronunciation/${entryId}`, {
+      method: 'DELETE',
     });
   }
 

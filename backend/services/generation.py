@@ -20,7 +20,7 @@ import traceback
 from typing import Literal, Optional
 
 from .. import config
-from . import history, profiles
+from . import history, profiles, pronunciation
 from ..database import get_db
 from ..utils.tasks import get_task_manager
 
@@ -83,7 +83,13 @@ async def run_generation(
         if crossfade_ms is not None:
             gen_kwargs["crossfade_ms"] = crossfade_ms
 
-        audio, sample_rate = await generate_chunked(tts_model, text, voice_prompt, **gen_kwargs)
+        processed_text = pronunciation.apply_pronunciation_dictionary(text, language, bg_db)
+        audio, sample_rate = await generate_chunked(
+            tts_model,
+            processed_text,
+            voice_prompt,
+            **gen_kwargs,
+        )
 
         # --- Normalize (generate and regenerate always; retry skips) -----
         if normalize or mode == "regenerate":
