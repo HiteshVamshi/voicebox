@@ -1,9 +1,8 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  AlignCenter,
   AudioLines,
-  AudioWaveform,
+  Columns2,
   Download,
   FileArchive,
   Loader2,
@@ -110,6 +109,10 @@ export function HistoryTable() {
   const [effectsChain, setEffectsChain] = useState<EffectConfig[]>([]);
   const [applyingEffects, setApplyingEffects] = useState(false);
   const [expandedVersionsId, setExpandedVersionsId] = useState<string | null>(null);
+  const [compareDialogOpen, setCompareDialogOpen] = useState(false);
+  const [compareGeneration, setCompareGeneration] = useState<HistoryResponse | null>(null);
+  const [compareLeftVersionId, setCompareLeftVersionId] = useState<string | null>(null);
+  const [compareRightVersionId, setCompareRightVersionId] = useState<string | null>(null);
   const limit = 20;
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -380,6 +383,29 @@ export function HistoryTable() {
     setAudioWithAutoPlay(audioUrl, generationId, profileId, text.substring(0, 50));
   };
 
+  const handleOpenCompare = (generationId: string) => {
+    const gen = allHistory.find((item) => item.id === generationId);
+    if (!gen?.versions || gen.versions.length < 2) {
+      toast({
+        title: 'Not enough versions to compare',
+        description: 'Create another take or effects version first.',
+      });
+      return;
+    }
+
+    const defaultVersion =
+      gen.versions.find((version) => version.id === gen.active_version_id) ??
+      gen.versions.find((version) => version.is_default) ??
+      gen.versions[0];
+    const alternateVersion =
+      gen.versions.find((version) => version.id !== defaultVersion.id) ?? gen.versions[1];
+
+    setCompareGeneration(gen);
+    setCompareLeftVersionId(defaultVersion.id);
+    setCompareRightVersionId(alternateVersion.id);
+    setCompareDialogOpen(true);
+  };
+
   const handleImportConfirm = () => {
     if (selectedFile) {
       importGeneration.mutate(selectedFile, {
@@ -629,6 +655,12 @@ export function HistoryTable() {
                                 <Wand2 className="mr-2 h-4 w-4" />
                                 Apply Effects
                               </DropdownMenuItem>
+                              {hasVersions && (
+                                <DropdownMenuItem onClick={() => handleOpenCompare(gen.id)}>
+                                  <Columns2 className="mr-2 h-4 w-4" />
+                                  A/B Compare
+                                </DropdownMenuItem>
+                              )}
                               <DropdownMenuItem onClick={() => handleRegenerate(gen.id)}>
                                 <RotateCcw className="mr-2 h-4 w-4" />
                                 Regenerate
@@ -840,6 +872,158 @@ export function HistoryTable() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ABCompareDialog
+        open={compareDialogOpen}
+        onOpenChange={setCompareDialogOpen}
+        generation={compareGeneration}
+        leftVersionId={compareLeftVersionId}
+        rightVersionId={compareRightVersionId}
+        onLeftVersionChange={setCompareLeftVersionId}
+        onRightVersionChange={setCompareRightVersionId}
+      />
+    </div>
+  );
+}
+
+function ABCompareDialog({
+  open,
+  onOpenChange,
+  generation,
+  leftVersionId,
+  rightVersionId,
+  onLeftVersionChange,
+  onRightVersionChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  generation: HistoryResponse | null;
+  leftVersionId: string | null;
+  rightVersionId: string | null;
+  onLeftVersionChange: (versionId: string) => void;
+  onRightVersionChange: (versionId: string) => void;
+}) {
+  const versions = generation?.versions ?? [];
+  const leftVersion = versions.find((version) => version.id === leftVersionId) ?? null;
+  const rightVersion = versions.find((version) => version.id === rightVersionId) ?? null;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-5xl">
+        <DialogHeader>
+          <DialogTitle>A/B Compare</DialogTitle>
+          <DialogDescription>
+            Compare two takes or effect versions side by side for {generation?.profile_name ?? 'this voice'}.
+          </DialogDescription>
+        </DialogHeader>
+
+        {generation ? (
+          <div className="space-y-4">
+            <Textarea value={generation.text} readOnly className="min-h-24 text-sm text-muted-foreground" />
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <CompareVersionCard
+                title="A"
+                versions={versions}
+                selectedVersionId={leftVersionId}
+                onVersionChange={onLeftVersionChange}
+                version={leftVersion}
+              />
+              <CompareVersionCard
+                title="B"
+                versions={versions}
+                selectedVersionId={rightVersionId}
+                onVersionChange={onRightVersionChange}
+                version={rightVersion}
+              />
+            </div>
+
+            {leftVersionId && rightVersionId && leftVersionId === rightVersionId && (
+              <div className="rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                Both sides are using the same version right now. Pick a different take on one side for a real A/B comparison.
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="rounded-md border border-dashed border-border/60 p-6 text-sm text-muted-foreground">
+            Pick a generation with multiple versions to compare.
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function CompareVersionCard({
+  title,
+  versions,
+  selectedVersionId,
+  onVersionChange,
+  version,
+}: {
+  title: string;
+  versions: GenerationVersionResponse[];
+  selectedVersionId: string | null;
+  onVersionChange: (versionId: string) => void;
+  version: GenerationVersionResponse | null;
+}) {
+  const audioUrl = version ? apiClient.getVersionAudioUrl(version.id) : '';
+
+  return (
+    <div className="rounded-xl border border-border/60 bg-card p-4 space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent/15 text-xs font-semibold text-accent">
+            {title}
+          </div>
+          <div>
+            <div className="text-sm font-medium">Version {title}</div>
+            <div className="text-xs text-muted-foreground">Choose a take or effect chain</div>
+          </div>
+        </div>
+        <Select value={selectedVersionId ?? ''} onValueChange={onVersionChange}>
+          <SelectTrigger className="w-48">
+            <SelectValue placeholder="Select version" />
+          </SelectTrigger>
+          <SelectContent>
+            {versions.map((candidate) => (
+              <SelectItem key={candidate.id} value={candidate.id}>
+                {candidate.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {version ? (
+        <>
+          <div className="rounded-lg border border-border/60 bg-muted/30 p-3 space-y-2">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="rounded-full bg-accent/15 px-2 py-0.5 text-accent">
+                {version.label}
+              </span>
+              {version.is_default && (
+                <span className="rounded-full bg-foreground/5 px-2 py-0.5 text-muted-foreground">
+                  active
+                </span>
+              )}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {version.effects_chain && version.effects_chain.length > 0
+                ? `Effects: ${version.effects_chain.map((effect) => effect.type).join(', ')}`
+                : 'Clean/original version with no effects chain.'}
+            </div>
+          </div>
+
+          <audio key={version.id} controls preload="none" className="w-full">
+            <source src={audioUrl} type="audio/wav" />
+          </audio>
+        </>
+      ) : (
+        <div className="rounded-lg border border-dashed border-border/60 p-6 text-sm text-muted-foreground">
+          No version selected.
+        </div>
+      )}
     </div>
   );
 }
