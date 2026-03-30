@@ -3,6 +3,16 @@ import type { LanguageCode } from '@/lib/constants/languages';
 
 export type VoiceType = 'cloned' | 'preset' | 'designed';
 
+export interface DesignedVoiceTraits {
+  honesty: number;
+  humor: number;
+  warmth: number;
+  energy: number;
+  emotional_expressiveness: number;
+  confidence: number;
+  formality: number;
+}
+
 export interface VoiceProfileCreate {
   name: string;
   description?: string;
@@ -11,6 +21,7 @@ export interface VoiceProfileCreate {
   preset_engine?: string;
   preset_voice_id?: string;
   design_prompt?: string;
+  designed_traits?: DesignedVoiceTraits;
   default_engine?: string;
 }
 
@@ -25,6 +36,7 @@ export interface VoiceProfileResponse {
   preset_engine?: string;
   preset_voice_id?: string;
   design_prompt?: string;
+  designed_traits?: DesignedVoiceTraits;
   default_engine?: string;
   generation_count: number;
   sample_count: number;

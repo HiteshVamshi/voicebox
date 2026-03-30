@@ -144,6 +144,8 @@ def _migrate_profiles(engine, inspector, tables: set[str]) -> None:
         _add_column(engine, "profiles", "preset_voice_id VARCHAR", "preset_voice_id")
     if "design_prompt" not in columns:
         _add_column(engine, "profiles", "design_prompt TEXT", "design_prompt")
+    if "designed_traits" not in columns:
+        _add_column(engine, "profiles", "designed_traits TEXT", "designed_traits")
     if "default_engine" not in columns:
         _add_column(engine, "profiles", "default_engine VARCHAR", "default_engine")
 

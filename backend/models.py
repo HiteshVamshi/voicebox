@@ -20,6 +20,19 @@ class VoiceProfileCreate(BaseModel):
     preset_voice_id: Optional[str] = Field(None, max_length=100)
     design_prompt: Optional[str] = Field(None, max_length=2000)
     default_engine: Optional[str] = Field(None, max_length=50)
+    designed_traits: Optional["DesignedVoiceTraits"] = None
+
+
+class DesignedVoiceTraits(BaseModel):
+    """Structured personality traits for designed voices."""
+
+    honesty: int = Field(ge=0, le=100)
+    humor: int = Field(ge=0, le=100)
+    warmth: int = Field(ge=0, le=100)
+    energy: int = Field(ge=0, le=100)
+    emotional_expressiveness: int = Field(ge=0, le=100)
+    confidence: int = Field(ge=0, le=100)
+    formality: int = Field(ge=0, le=100)
 
 
 class VoiceProfileResponse(BaseModel):
@@ -35,6 +48,7 @@ class VoiceProfileResponse(BaseModel):
     preset_engine: Optional[str] = None
     preset_voice_id: Optional[str] = None
     design_prompt: Optional[str] = None
+    designed_traits: Optional["DesignedVoiceTraits"] = None
     default_engine: Optional[str] = None
     generation_count: int = 0
     sample_count: int = 0

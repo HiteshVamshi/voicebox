@@ -36,7 +36,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
 import { apiClient } from '@/lib/api/client';
-import type { EffectConfig, PresetVoice, VoiceType } from '@/lib/api/types';
+import type {
+  DesignedVoiceTraits as ApiDesignedVoiceTraits,
+  EffectConfig,
+  PresetVoice,
+  VoiceType,
+} from '@/lib/api/types';
 import { LANGUAGE_CODES, LANGUAGE_OPTIONS, type LanguageCode } from '@/lib/constants/languages';
 import { useAudioPlayer } from '@/lib/hooks/useAudioPlayer';
 import { useAudioRecording } from '@/lib/hooks/useAudioRecording';
@@ -104,6 +109,31 @@ const profileSchema = baseProfileSchema.refine(
 );
 
 type ProfileFormValues = z.infer<typeof profileSchema>;
+
+function toApiDesignedTraits(traits: DesignedVoiceTraits): ApiDesignedVoiceTraits {
+  return {
+    honesty: traits.honesty,
+    humor: traits.humor,
+    warmth: traits.warmth,
+    energy: traits.energy,
+    emotional_expressiveness: traits.emotionalExpressiveness,
+    confidence: traits.confidence,
+    formality: traits.formality,
+  };
+}
+
+function fromApiDesignedTraits(traits?: ApiDesignedVoiceTraits | null): DesignedVoiceTraits {
+  if (!traits) return DEFAULT_DESIGNED_VOICE_TRAITS;
+  return {
+    honesty: traits.honesty,
+    humor: traits.humor,
+    warmth: traits.warmth,
+    energy: traits.energy,
+    emotionalExpressiveness: traits.emotional_expressiveness,
+    confidence: traits.confidence,
+    formality: traits.formality,
+  };
+}
 
 // Helper to convert File to base64
 async function fileToBase64(file: File): Promise<string> {
@@ -361,7 +391,11 @@ export function ProfileForm() {
             ? 'designed'
             : 'clone',
       );
-      setDesignedTraits(parseDesignedVoiceTraits(editingProfile.design_prompt));
+      setDesignedTraits(
+        editingProfile.designed_traits
+          ? fromApiDesignedTraits(editingProfile.designed_traits)
+          : parseDesignedVoiceTraits(editingProfile.design_prompt),
+      );
     } else if (profileFormDraft && open) {
       // Restore from draft when opening in create mode
       form.reset({
@@ -544,6 +578,10 @@ export function ProfileForm() {
             description: data.description,
             language: data.language,
             design_prompt: designPrompt,
+            designed_traits:
+              editingProfile?.voice_type === 'designed'
+                ? toApiDesignedTraits(designedTraits)
+                : undefined,
             default_engine: defaultEngine || undefined,
           },
         });
@@ -636,6 +674,7 @@ export function ProfileForm() {
           language: data.language,
           voice_type: 'designed' as VoiceType,
           design_prompt: buildDesignedVoicePrompt(data.name, data.description, designedTraits),
+          designed_traits: toApiDesignedTraits(designedTraits),
           default_engine: defaultEngine || undefined,
         });
 

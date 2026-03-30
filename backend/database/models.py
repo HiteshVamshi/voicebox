@@ -32,6 +32,7 @@ class VoiceProfile(Base):
     preset_engine = Column(String, nullable=True)   # e.g. "kokoro" — only for preset
     preset_voice_id = Column(String, nullable=True)  # e.g. "am_adam" — only for preset
     design_prompt = Column(Text, nullable=True)      # text description — only for designed
+    designed_traits = Column(Text, nullable=True)    # JSON traits payload — only for designed
     default_engine = Column(String, nullable=True)   # auto-selected engine, locked for preset
 
     created_at = Column(DateTime, default=datetime.utcnow)

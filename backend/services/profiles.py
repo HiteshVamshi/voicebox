@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from .. import config
 from ..database import Generation as DBGeneration, ProfileSample as DBProfileSample, VoiceProfile as DBVoiceProfile
 from ..models import (
+    DesignedVoiceTraits,
     EffectConfig,
     ProfileSampleResponse,
     VoiceProfileCreate,
@@ -25,6 +26,16 @@ from ..utils.images import process_avatar, validate_image
 logger = logging.getLogger(__name__)
 
 CLONING_ENGINES = {"qwen", "luxtts", "chatterbox", "chatterbox_turbo", "tada"}
+
+
+def _parse_designed_traits(raw_traits: str | None) -> DesignedVoiceTraits | None:
+    if not raw_traits:
+        return None
+    try:
+        return DesignedVoiceTraits(**_json.loads(raw_traits))
+    except Exception as e:
+        logger.warning("Failed to parse designed_traits: %s", e)
+        return None
 
 
 def _profile_to_response(
@@ -53,6 +64,7 @@ def _profile_to_response(
         preset_engine=getattr(profile, "preset_engine", None),
         preset_voice_id=getattr(profile, "preset_voice_id", None),
         design_prompt=getattr(profile, "design_prompt", None),
+        designed_traits=_parse_designed_traits(getattr(profile, "designed_traits", None)),
         default_engine=getattr(profile, "default_engine", None),
         generation_count=generation_count,
         sample_count=sample_count,
@@ -180,6 +192,7 @@ async def create_profile(
         preset_engine=data.preset_engine,
         preset_voice_id=data.preset_voice_id,
         design_prompt=data.design_prompt,
+        designed_traits=_json.dumps(data.designed_traits.model_dump()) if data.designed_traits else None,
         default_engine=default_engine,
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow(),
@@ -361,7 +374,7 @@ async def update_profile(
     voice_type = getattr(profile, "voice_type", None) or "cloned"
     preset_engine = getattr(profile, "preset_engine", None)
     preset_voice_id = getattr(profile, "preset_voice_id", None)
-    design_prompt = getattr(profile, "design_prompt", None)
+    design_prompt = data.design_prompt if data.design_prompt is not None else getattr(profile, "design_prompt", None)
     default_engine = data.default_engine if data.default_engine is not None else getattr(profile, "default_engine", None)
 
     validation_error = _validate_profile_fields(
@@ -377,6 +390,10 @@ async def update_profile(
     profile.name = data.name
     profile.description = data.description
     profile.language = data.language
+    if data.design_prompt is not None:
+        profile.design_prompt = data.design_prompt or None
+    if data.designed_traits is not None:
+        profile.designed_traits = _json.dumps(data.designed_traits.model_dump())
     if data.default_engine is not None:
         profile.default_engine = data.default_engine or None  # empty string → NULL
     profile.updated_at = datetime.utcnow()
